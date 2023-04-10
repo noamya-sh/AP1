@@ -1,0 +1,16 @@
+all: myshell
+temp : temp.o
+temp.o : temp.c
+	gcc -Wall -g -c temp.c
+key: key.o
+key.o: key.c
+	gcc -Wall -g -c key.c
+myshell: myshell.o
+
+myshell.o: myshell.c
+	gcc -Wall -g -c myshell.c
+
+.PHONY: clean all
+
+clean:
+	rm -f *.o myshell
