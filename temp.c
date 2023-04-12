@@ -20,7 +20,8 @@ int input_length = 0; // Length of input buffer
 int command_index = 0; // Index of currently displayed command
 char *argv[10];
 char *outfile;
-int fd, amper,redirect,retid,status;
+int fd, amper,redirect,retid,status,changed_prompt;
+
 // Function to read a single character from terminal without waiting for Enter key
 char getch()
 {
@@ -92,7 +93,7 @@ int main(){
             else{
                 // Add command to command history
                 commands[num_commands] = strdup(input);
-                char *temp = strdup(input);
+//                char *temp = strdup(input);
                 num_commands++;
                 command_index = num_commands;
                 // TODO: Execute command here
@@ -131,7 +132,9 @@ int main(){
                     cleanInput();
                     continue;
                 } else if (i>2 && ! strcmp(argv[i - 3], "prompt") && (! strcmp(argv[i - 2], "="))) {  //Q2
+                    if (changed_prompt) free(prompt_name);
                     prompt_name = strdup(argv[i - 1]);
+                    changed_prompt = 1;
                     cleanInput();
                     continue;
                 } else if (i>1 && ! strcmp(argv[0], "cd")) {   //Q5
@@ -147,12 +150,12 @@ int main(){
                     continue;
                 }
 
-                if (i >1 &&! strcmp(argv[i - 2], ">")) {
+                if (i > 1 && !strcmp(argv[i - 2], ">")) {
                     redirect = 1;
                     argv[i - 2] = NULL;
                     outfile = argv[i - 1];
                 }
-                else if (! strcmp(argv[i - 2], "2>")) {    //Q1.1
+                else if (i > 1 && !strcmp(argv[i - 2], "2>")) {    //Q1.1
                     redirect = 2;
                     argv[i - 2] = NULL;
                     outfile = argv[i - 1];
@@ -172,7 +175,6 @@ int main(){
                         /* stdout is now redirected */
                     }
                     if (redirect == 2){
-                        printf("lllll\n");
                         if (freopen(outfile, "w", stderr) == NULL) {
                             perror("freopen error");
                             return 1;
@@ -247,6 +249,8 @@ int main(){
     for (int i = 0; i < num_commands; i++){
         free(commands[i]);
     }
+    if (changed_prompt)
+        free(prompt_name);
 
     return 0;
 }
