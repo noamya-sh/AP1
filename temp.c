@@ -12,19 +12,17 @@
 
 #define MAX_COMMANDS 20
 #define MAX_COMMAND_LENGTH 1024
-char *prompt_name = "hello";
+char *last_command = "", *prompt_name = "hello";
 char* commands[MAX_COMMANDS]; // Array to store command history
 int num_commands = 0; // Number of commands in history
 char input[MAX_COMMAND_LENGTH] = ""; // Input buffer for current command
 int input_length = 0; // Length of input buffer
 int command_index = 0; // Index of currently displayed command
-char *argv[10];
 char *outfile;
-int fd, amper,redirect,retid,status,changed_prompt;
+int fd, amper,redirect,retid,status,changed_prompt,changed_last;
 
 // Function to read a single character from terminal without waiting for Enter key
-char getch()
-{
+char getch(){
     char buf = 0;
     struct termios old = {0};
     if (tcgetattr(0, &old) < 0)
@@ -43,24 +41,40 @@ char getch()
         perror("tcsetattr ~ICANON");
     return buf;
 }
-
+int countCharOccurrences(const char* str, char c) {
+    int count = 0;
+    while (*str != '\0') {
+        if (*str == c) {
+            count++;
+        }
+        str++;
+    }
+    return count;
+}
 // Function to display a command in the shell
 void display_command(char* command){
     printf("\r\033[K"); // Clear the current line
     printf("%s:%s",prompt_name, command);
     fflush(stdout);
 }
-int parser(){
+int parser(char*** argv,char* str, int idx){
     int i = 0;
+    argv[idx] = (char **) malloc(10 * sizeof (char *));
+    // Remove trailing spaces at the end of the input string
+    int len = strlen(str);
+    while (len > 0 && str[len - 1] == ' ') {
+        str[len - 1] = '\0';
+        len--;
+    }
     char *token;
-    token = strtok (input," ");
-    while (token != NULL)
-    {
-        argv[i] = token;
-        token = strtok (NULL, " ");
+    if (*str == ' ') str++;
+    token = strtok(str," ");
+    while (token != NULL){
+        argv[idx][i] = token;
+        token = strtok(NULL, " ");
         i++;
     }
-    argv[i] = NULL;
+    argv[idx][i] = NULL;
     return i;
 }
 void cleanInput(){
@@ -76,10 +90,15 @@ void sigint_handler(int signum) {
     fflush(stdout);
 }
 int main(){
+    char** pipe_commands;
+    char ***args;
     signal(SIGINT, sigint_handler);
     printf("Welcome to MyShell!\n");
     printf("%s:",prompt_name);
     fflush(stdout);
+    //save orginal stdin, stdout
+    int orig_stdin = dup(0);
+    int orig_stdout = dup(1);
     while (1){
         char c = getch(); // Read a character from terminal
 
@@ -87,119 +106,174 @@ int main(){
             // Enter key pressed, execute command
             printf("\n");
             if (strcmp(input, "quit") == 0){
-                // Check if input is "quit" command
                 break; // Exit the loop and terminate the program
             }
             else{
+                if (strcmp(input, "!!") == 0){
+                    if (!changed_last){
+                        printf("No command has been executed yet");
+                    }
+                    else{
+                        strncpy(input, last_command, strlen(last_command));
+                    }
+                }
                 // Add command to command history
                 commands[num_commands] = strdup(input);
-//                char *temp = strdup(input);
                 num_commands++;
                 command_index = num_commands;
-                // TODO: Execute command here
 
-
-//
-                int i = parser();
-                if (argv[0] == NULL)
-                    continue;
-                if (!strcmp(input, "!!") && num_commands > 1){ //not working
-                    printf("%d\n",num_commands);
-                    strncpy(input, commands[num_commands-2], MAX_COMMAND_LENGTH - 1);
-                    printf("%s\n",input);
-                    input_length = strlen(input);
-                    i = parser();
-                    cleanInput();
-                }
-                /* Does command line end with & */
-                if (i>0 && !strcmp(argv[i - 1], "&")) {
-                    amper = 1;
-                    argv[i - 1] = NULL;
-                }
-                else
-                    amper = 0;
-
-                if (! strcmp(argv[0], "echo")){   //Q3 && Q4
-                    if(! strcmp(argv[1], "$?")){
-                        system("echo $?");
+                int num_pipes = countCharOccurrences(commands[num_commands-1],'|');
+                int pipesfd[num_pipes][2];
+                for (int i = 0; i < num_pipes; i++) {
+                    if (pipe(pipesfd[i]) == -1) {
+                        perror("pipe");
+                        exit(1);
                     }
-                    else {
-                        for (int j = 1; j < i; j++) {
-                            printf("%s ", argv[j]);
+                }
+                pipe_commands = (char**) malloc((num_pipes + 1) * sizeof (char *));
+                char* temp_input = strdup(input);
+                char *token;
+                token = strtok(temp_input,"|");
+                int k = 0;
+                while (token != NULL){
+                    pipe_commands[k++] = token;
+                    token = strtok(NULL, "|");
+                }
+                int pid,i;
+                args = (char ***) malloc((num_pipes + 1) * sizeof(char **));
+                for (int j = 0; j < num_pipes + 1; ++j) {
+
+                    i = parser(args,pipe_commands[j],j);
+                    if (args[j][0] == NULL)
+                        break;
+                    /* Does command line end with & */
+                    if (i>0 && !strcmp(args[j][i - 1], "&")) {
+                        amper = 1;
+                        args[j][i - 1] = NULL;
+                    }
+                    else
+                        amper = 0;
+
+                    if (! strcmp(args[j][0], "echo")){   //Q3 && Q4
+                        if(! strcmp(args[j][1], "$?")){
+                            system("echo $?");
                         }
-                        printf("\n");
-                    }
-                    cleanInput();
-                    continue;
-                } else if (i>2 && ! strcmp(argv[i - 3], "prompt") && (! strcmp(argv[i - 2], "="))) {  //Q2
-                    if (changed_prompt) free(prompt_name);
-                    prompt_name = strdup(argv[i - 1]);
-                    changed_prompt = 1;
-                    cleanInput();
-                    continue;
-                } else if (i>1 && ! strcmp(argv[0], "cd")) {   //Q5
-                    chdir(argv[1]);
-                    cleanInput();
-                    continue;
-                }
-                if (! strcmp(argv[i - 2], ">>")){    //Q1.2
-                    FILE *file = fopen(argv[i-1],"a+");
-                    fprintf(file, "%s", argv[i-3]);
-                    fclose(file);
-                    cleanInput();
-                    continue;
-                }
-
-                if (i > 1 && !strcmp(argv[i - 2], ">")) {
-                    redirect = 1;
-                    argv[i - 2] = NULL;
-                    outfile = argv[i - 1];
-                }
-                else if (i > 1 && !strcmp(argv[i - 2], "2>")) {    //Q1.1
-                    redirect = 2;
-                    argv[i - 2] = NULL;
-                    outfile = argv[i - 1];
-                }
-                else{
-                    redirect = 0;
-                }
-                if (fork() == 0) {
-                    /* redirection of IO ? */
-                    if (redirect == 1) {
-//                        printf("jjjjjj");
-                        fd = creat(outfile, 0660);
-                        close(STDOUT_FILENO) ;
-                        dup(fd);
-                        close(fd);
-
-                        /* stdout is now redirected */
-                    }
-                    if (redirect == 2){
-                        if (freopen(outfile, "w", stderr) == NULL) {
-                            perror("freopen error");
-                            return 1;
+                        else {
+                            for (int s = 1; s < i; s++) {
+                                printf("%s ", args[j][s]);
+                            }
+                            printf("\n");
                         }
-                        // Restore stderr to its original stream
-                        if (freopen("/dev/stderr", "w", stderr) == NULL) {
-                            perror("freopen error");
-                            return 1;
-                        }
+                        continue;
+                    } else if (i>2 && ! strcmp(args[j][i - 3], "prompt") && (! strcmp(args[j][i - 2], "="))) {  //Q2
+                        if (changed_prompt) free(prompt_name);
+                        prompt_name = strdup(args[j][i - 1]);
+                        changed_prompt = 1;
+                        continue;
+                    } else if (i>1 && ! strcmp(args[j][0], "cd")) {   //Q5
+                        chdir(args[j][1]);
+                        continue;
                     }
-                    execvp(argv[0], argv);
-                    cleanInput();
+                    if (i > 1 && !strcmp(args[j][i - 2], ">>")){    //Q1.2
+                        FILE *file = fopen(args[j][i-1],"a+");
+                        fprintf(file, "%s", args[j][i-3]);
+                        fclose(file);
+                        continue;
+                    }
+
+                    if (i > 1 && !strcmp(args[j][i - 2], ">")) {
+                        redirect = 1;
+                        args[j][i - 2] = NULL;
+                        outfile = args[j][i - 1];
+                    }
+                    else if (i > 1 && !strcmp(args[j][i - 2], "2>")) {    //Q1.1
+                        redirect = 2;
+                        args[j][i - 2] = NULL;
+                        outfile = args[j][i - 1];
+                    }
+                    else{
+                        redirect = 0;
+                    }
+                    if ((pid = fork()) == -1) {
+                        perror("fork");
+                        exit(1);
+                    }
+                    else if (pid == 0) {
+                        if (num_pipes > 0 && j==0){
+                            close(STDOUT_FILENO); // close stdout
+                            dup2(pipesfd[j][1], STDOUT_FILENO); // redirect stdout to write end of first pipe */
+                            close(pipesfd[j][0]); // close read end of first pipe
+                        }
+                        if (j > 0) {
+                            dup2(pipesfd[j-1][0], 0);
+                            close(pipesfd[j-1][0]);
+                            close(pipesfd[j-1][1]);
+                        }
+                        if (j < num_pipes) {
+                            // Redirect stdout to write end of pipe
+                            dup2(pipesfd[j][1], 1);
+                            close(pipesfd[j][0]);
+                            close(pipesfd[j][1]);
+                        }
+
+                        /* redirection of IO ? */
+                        if (redirect == 1) {
+                            fd = creat(outfile, 0660);
+                            close(STDOUT_FILENO) ;
+                            dup(fd);
+                            close(fd);
+
+                            /* stdout is now redirected */
+                        }
+                        if (redirect == 2){
+                            if (freopen(outfile, "w", stderr) == NULL) {
+                                perror("freopen error");
+                                return 1;
+                            }
+                            // Restore stderr to its original stream
+                            if (freopen("/dev/stderr", "w", stderr) == NULL) {
+                                perror("freopen error");
+                                return 1;
+                            }
+                        }
+                        execvp(args[j][0], args[j]);
+                    } else {
+                        // Parent process
+                        if (j < num_pipes) {
+                            // Close write end of pipe
+                            close(pipesfd[j][1]);
+                        }
+                        if (j > 0) {
+                            // Close read end of previous pipe
+                            close(pipesfd[j-1][0]);
+                            close(pipesfd[j-1][1]);
+                        }
+                        retid = pid;
+                        waitpid(pid, &status, 0);
+                    }
+
+                    if (amper == 0)
+                        retid = wait(&status);
                 }
-                if (amper == 0)
-                    retid = wait(&status);
-//                }
-                // Reset input buffer and display prompt
+                //redirect stdin and stdout to originals fds
+                dup2(orig_stdin, 0);
+                dup2(orig_stdout, 1);
+
+                for (int i = 0; i < num_pipes+1; i++) {
+                    free(args[i]);
+                }
+                free(temp_input);
+                free(args);
+                free(pipe_commands);
+                if (changed_last) free(last_command);
+                last_command = strdup(input);
+                changed_last = 1;
                 cleanInput();
             }
         }
-        else if (c == 127)
-        {
+        else if (c == 127){
             // If Backspace key is pressed, remove the last character from input buffer
-            if (input_length > 0)
-            {
+            if (input_length > 0){
                 input[--input_length] = '\0';
                 display_command(input);
             }
@@ -249,8 +323,8 @@ int main(){
     for (int i = 0; i < num_commands; i++){
         free(commands[i]);
     }
-    if (changed_prompt)
-        free(prompt_name);
+    if (changed_prompt)free(prompt_name);
+    if (changed_last) free(last_command);
 
     return 0;
 }
