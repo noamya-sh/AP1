@@ -9,11 +9,74 @@
 #include <fcntl.h>
 #include "errno.h"
 #include <signal.h>
+#include <ctype.h> // for isalpha
+
 #define REDIRECT_OUT 1
 #define REDIRECT_ERR 2
 #define REDIRECT_APP 3
 #define MAX_COMMANDS 20
 #define MAX_COMMAND_LENGTH 1024
+#define MAX_VAR_NAME_LEN 20
+#define MAX_VAR_VALUE_LEN 50
+#define HASH_TABLE_SIZE 100
+
+typedef struct variable {
+    char name[MAX_VAR_NAME_LEN];
+    char value[MAX_VAR_VALUE_LEN];
+    struct variable *next;
+} Variable;
+
+Variable *hash_table[HASH_TABLE_SIZE];
+
+// Hash function for strings
+unsigned int hash_string(const char *str)
+{
+    unsigned int hash = 0;
+    while (*str) {
+        hash = hash * 31 + *str;
+        str++;
+    }
+    return hash % HASH_TABLE_SIZE;
+}
+
+// Get a variable from the hash table
+Variable *get_variable(const char *name){
+    unsigned int hash = hash_string(name);
+    Variable *var = hash_table[hash];
+    while (var != NULL) {
+        if (strcmp(var->name, name) == 0) {
+            return var;
+        }
+        var = var->next;
+    }
+    return NULL;
+}
+
+// Set the value of a variable
+void set_variable(const char *name, const char *value){
+    Variable *var = get_variable(name);
+    if (var == NULL) {
+        // Variable does not exist, create a new one
+        unsigned int hash = hash_string(name);
+        var = (Variable *) malloc(sizeof(Variable));
+        strncpy(var->name, name, MAX_VAR_NAME_LEN);
+        var->next = hash_table[hash];
+        hash_table[hash] = var;
+    }
+    strncpy(var->value, value, MAX_VAR_VALUE_LEN);
+//    printf("%s, %s\n",var->name, var->value);
+}
+void freeHashTable() {
+    for (int i = 0; i < HASH_TABLE_SIZE; i++) {
+        Variable * currNode = hash_table[i];
+        while (currNode != NULL) {
+            Variable* nextNode = currNode->next;
+            free(currNode);
+            currNode = nextNode;
+        }
+    }
+}
+
 char *last_command = "", *prompt_name = "hello";
 char* commands[MAX_COMMANDS]; // Array to store command history
 int num_commands = 0; // Number of commands in history
@@ -112,7 +175,7 @@ int main(){
                 break; // Exit the loop and terminate the program
             }
             if (strncmp("if", input, 2) == 0){
-                if_else();
+//                if_else();
                 continue; // Exit the loop and terminate the program
             }
             else{
@@ -161,9 +224,35 @@ int main(){
                     else
                         amper = 0;
 
+                    if (i > 3 && args[j][1][0] == '$' && !strcmp(args[j][i - 2], "=")){   //Q10 ---not finished
+                        set_variable(args[j][i-3]+1,args[j][i-1]);
+                        continue;
+                    }
+
+
+                    if (! strcmp(args[j][0], "read")){
+                        input[0] = '\0';
+                        input_length = 0;
+                        char command[MAX_COMMAND_LENGTH];
+                        fgets(command, 1024, stdin);
+                        command[strlen(command)-1] = '\0';
+                        char new_word[20]; // allocate space for the new word
+                        strncpy(new_word, args[j][1], 20); // concatenate the original word to the new word
+                        set_variable(new_word,command);
+                        continue;
+                    }
+
+
                     if (! strcmp(args[j][0], "echo")){   //Q3 && Q4
-                        if(! strcmp(args[j][1], "$?")){
-                            system("echo $?");
+                        if(args[j][1][0]=='$'){
+                            if(args[j][1][1]=='?'){
+                                system("echo $?");
+                            }
+                            else{
+                                Variable *var = get_variable(args[j][1]+1);
+                                if (var)
+                                    printf("%s\n", var->value);
+                            }
                         }
                         else {
                             for (int s = 1; s < i; s++) {
@@ -273,14 +362,16 @@ int main(){
                 for (int i = 0; i < num_pipes+1; i++) {
                     free(args[i]);
                 }
-                free(temp_input);
+
                 free(args);
                 free(pipe_commands);
+                free(temp_input);
                 if (changed_last) free(last_command);
-                last_command = strdup(input);
+                last_command = strdup(commands[num_commands-1]);
                 changed_last = 1;
                 cleanInput();
             }
+            continue;
         }
         else if (c == 127){
             // If Backspace key is pressed, remove the last character from input buffer
@@ -336,6 +427,6 @@ int main(){
     }
     if (changed_prompt)free(prompt_name);
     if (changed_last) free(last_command);
-
+    freeHashTable();
     return 0;
 }
