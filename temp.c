@@ -9,7 +9,9 @@
 #include <fcntl.h>
 #include "errno.h"
 #include <signal.h>
-
+#define REDIRECT_OUT 1
+#define REDIRECT_ERR 2
+#define REDIRECT_APP 3
 #define MAX_COMMANDS 20
 #define MAX_COMMAND_LENGTH 1024
 char *last_command = "", *prompt_name = "hello";
@@ -91,7 +93,8 @@ void sigint_handler(int signum) {
 }
 int main(){
     char** pipe_commands;
-    char ***args;
+    char*** args;
+
     signal(SIGINT, sigint_handler);
     printf("Welcome to MyShell!\n");
     printf("%s:",prompt_name);
@@ -107,6 +110,10 @@ int main(){
             printf("\n");
             if (strcmp(input, "quit") == 0){
                 break; // Exit the loop and terminate the program
+            }
+            if (strncmp("if", input, 2) == 0){
+                if_else();
+                continue; // Exit the loop and terminate the program
             }
             else{
                 if (strcmp(input, "!!") == 0){
@@ -175,19 +182,17 @@ int main(){
                         continue;
                     }
                     if (i > 1 && !strcmp(args[j][i - 2], ">>")){    //Q1.2
-                        FILE *file = fopen(args[j][i-1],"a+");
-                        fprintf(file, "%s", args[j][i-3]);
-                        fclose(file);
-                        continue;
+                        redirect = REDIRECT_APP;
+                        args[j][i - 2] = NULL;
+                        outfile = args[j][i - 1];
                     }
-
-                    if (i > 1 && !strcmp(args[j][i - 2], ">")) {
-                        redirect = 1;
+                    else if (i > 1 && !strcmp(args[j][i - 2], ">")) {
+                        redirect = REDIRECT_OUT;
                         args[j][i - 2] = NULL;
                         outfile = args[j][i - 1];
                     }
                     else if (i > 1 && !strcmp(args[j][i - 2], "2>")) {    //Q1.1
-                        redirect = 2;
+                        redirect = REDIRECT_ERR;
                         args[j][i - 2] = NULL;
                         outfile = args[j][i - 1];
                     }
@@ -199,11 +204,11 @@ int main(){
                         exit(1);
                     }
                     else if (pid == 0) {
-                        if (num_pipes > 0 && j==0){
-                            close(STDOUT_FILENO); // close stdout
-                            dup2(pipesfd[j][1], STDOUT_FILENO); // redirect stdout to write end of first pipe */
-                            close(pipesfd[j][0]); // close read end of first pipe
-                        }
+//                        if (num_pipes > 0 && j==0){
+//                            close(STDOUT_FILENO); // close stdout
+//                            dup2(pipesfd[j][1], STDOUT_FILENO); // redirect stdout to write end of first pipe */
+//                            close(pipesfd[j][0]); // close read end of first pipe
+//                        }
                         if (j > 0) {
                             dup2(pipesfd[j-1][0], 0);
                             close(pipesfd[j-1][0]);
@@ -217,7 +222,7 @@ int main(){
                         }
 
                         /* redirection of IO ? */
-                        if (redirect == 1) {
+                        if (redirect == REDIRECT_OUT) {
                             fd = creat(outfile, 0660);
                             close(STDOUT_FILENO) ;
                             dup(fd);
@@ -225,7 +230,7 @@ int main(){
 
                             /* stdout is now redirected */
                         }
-                        if (redirect == 2){
+                        if (redirect == REDIRECT_ERR){
                             if (freopen(outfile, "w", stderr) == NULL) {
                                 perror("freopen error");
                                 return 1;
@@ -235,6 +240,12 @@ int main(){
                                 perror("freopen error");
                                 return 1;
                             }
+                        }
+                        if (redirect == REDIRECT_APP){
+                            fd = open(outfile, O_CREAT | O_APPEND | O_RDWR, 0660);
+                            close(STDOUT_FILENO) ;
+                            dup(fd);
+                            close(fd);
                         }
                         execvp(args[j][0], args[j]);
                     } else {
