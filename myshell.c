@@ -24,15 +24,13 @@ typedef struct variable {
     char value[MAX_VAR_VALUE_LEN];
     struct variable *next;
 } Variable;
-char *last_command = "", *prompt_name = "hello";
+char *outfile,*last_command = "", *prompt_name = "hello";
 char ***args,**pipe_commands, *commands[MAX_COMMANDS]; // Array to store command history
-int num_commands = 0; // Number of commands in history
 char input[MAX_COMMAND_LENGTH] = ""; // Input buffer for current command
-int input_length = 0; // Length of input buffer
-int command_index = 0,orig_com_idx; // Index of currently displayed command
-char *outfile;
+int input_length = 0, command_index = 0,num_commands = 0; // Index of currently displayed command
 int fd, amper,redirect,retid,status,changed_prompt,changed_last,orig_stdin,orig_stdout;
 Variable *hash_table[HASH_TABLE_SIZE];
+
 // Hash function for strings
 unsigned int hash_string(const char *str){
     unsigned int hash = 0;
@@ -54,7 +52,6 @@ Variable *get_variable(const char *name){
     }
     return NULL;
 }
-
 // Set the value of a variable
 void set_variable(const char *name, const char *value){
     Variable *var = get_variable(name);
@@ -67,7 +64,6 @@ void set_variable(const char *name, const char *value){
         hash_table[hash] = var;
     }
     strncpy(var->value, value, MAX_VAR_VALUE_LEN);
-//    printf("%s, %s\n",var->name, var->value);
 }
 void freeHashTable() {
     for (int i = 0; i < HASH_TABLE_SIZE; i++) {
@@ -132,9 +128,8 @@ int parser(char*** argv,char* str, int idx){
     if (*str == ' ') str++;
     token = strtok(str," ");
     while (token != NULL){
-        argv[idx][i] = token;
+        argv[idx][i++] = token;
         token = strtok(NULL, " ");
-        i++;
     }
     argv[idx][i] = NULL;
     return i;
