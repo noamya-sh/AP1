@@ -14,6 +14,7 @@
 #define REDIRECT_OUT 1
 #define REDIRECT_ERR 2
 #define REDIRECT_APP 3
+#define REDIRECT_IN 4
 #define MAX_COMMANDS 20
 #define MAX_COMMAND_LENGTH 1024
 #define MAX_VAR_NAME_LEN 20
@@ -251,6 +252,11 @@ int exec(const char* com, int flag){
             args[j][i - 2] = NULL;
             outfile = args[j][i - 1];
         }
+        else if (i > 1 && !strcmp(args[j][i - 2], "<")) {
+            redirect = REDIRECT_IN;
+            args[j][i - 2] = NULL;
+            outfile = args[j][i - 1];
+        }
         else if (i > 1 && !strcmp(args[j][i - 2], "2>")) {    //Q1.1
             redirect = REDIRECT_ERR;
             args[j][i - 2] = NULL;
@@ -282,12 +288,19 @@ int exec(const char* com, int flag){
             }
 
             /* redirection of IO ? */
+            if (redirect == REDIRECT_IN) {
+                fd = open(outfile, O_RDONLY, 0660);
+                close(STDIN_FILENO) ;
+                dup(fd);
+                close(fd);
+                /* stdin is now redirected */
+            }
             if (redirect == REDIRECT_OUT) {
+                printf("out\n");
                 fd = creat(outfile, 0660);
                 close(STDOUT_FILENO) ;
                 dup(fd);
                 close(fd);
-
                 /* stdout is now redirected */
             }
             if (redirect == REDIRECT_ERR){
@@ -437,7 +450,7 @@ int main(){
                 c = getch();
                 if (c == 'A'){
                     // If Up arrow key is pressed, display the previous command in history
-                    if (num_commands >= MAX_COMMANDS || (num_commands < MAX_COMMANDS && command_index > 1)){
+                    if (num_commands >= MAX_COMMANDS || (num_commands < MAX_COMMANDS && command_index > 0)){
                         command_index = mod((command_index - 1), MAX_COMMANDS);
                         strncpy(input, commands[command_index], MAX_COMMAND_LENGTH - 1);
                         input_length = strlen(input);
