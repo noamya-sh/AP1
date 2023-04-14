@@ -211,6 +211,7 @@ int main(){
                 }
                 int pid,i;
                 args = (char ***) malloc((num_pipes + 1) * sizeof(char **));
+                int statusim[num_pipes+1];
                 for (int j = 0; j < num_pipes + 1; ++j) {
 
                     i = parser(args,pipe_commands[j],j);
@@ -226,6 +227,7 @@ int main(){
 
                     if (i > 3 && args[j][1][0] == '$' && !strcmp(args[j][i - 2], "=")){   //Q10 ---not finished
                         set_variable(args[j][i-3]+1,args[j][i-1]);
+                        status = 0;
                         continue;
                     }
 
@@ -239,6 +241,7 @@ int main(){
                         char new_word[20]; // allocate space for the new word
                         strncpy(new_word, args[j][1], 20); // concatenate the original word to the new word
                         set_variable(new_word,command);
+                        status = 0;
                         continue;
                     }
 
@@ -246,7 +249,7 @@ int main(){
                     if (! strcmp(args[j][0], "echo")){   //Q3 && Q4
                         if(args[j][1][0]=='$'){
                             if(args[j][1][1]=='?'){
-                                system("echo $?");
+                                printf("%d\n",status);
                             }
                             else{
                                 Variable *var = get_variable(args[j][1]+1);
@@ -260,14 +263,17 @@ int main(){
                             }
                             printf("\n");
                         }
+                        status = 0;
                         continue;
                     } else if (i>2 && ! strcmp(args[j][i - 3], "prompt") && (! strcmp(args[j][i - 2], "="))) {  //Q2
                         if (changed_prompt) free(prompt_name);
                         prompt_name = strdup(args[j][i - 1]);
                         changed_prompt = 1;
+                        status = 0;
                         continue;
                     } else if (i>1 && ! strcmp(args[j][0], "cd")) {   //Q5
                         chdir(args[j][1]);
+                        status = 0;
                         continue;
                     }
                     if (i > 1 && !strcmp(args[j][i - 2], ">>")){    //Q1.2
@@ -337,6 +343,7 @@ int main(){
                             close(fd);
                         }
                         execvp(args[j][0], args[j]);
+                        exit(1);
                     } else {
                         // Parent process
                         if (j < num_pipes) {
@@ -348,8 +355,10 @@ int main(){
                             close(pipesfd[j-1][0]);
                             close(pipesfd[j-1][1]);
                         }
-                        retid = pid;
-                        waitpid(pid, &status, 0);
+//                        retid = pid;
+//                        waitpid(pid, &status, 0);
+                        wait(&status);
+                        statusim[j] = status;
                     }
 
                     if (amper == 0)
@@ -358,7 +367,7 @@ int main(){
                 //redirect stdin and stdout to originals fds
                 dup2(orig_stdin, 0);
                 dup2(orig_stdout, 1);
-
+                status = statusim[num_pipes];
                 for (int i = 0; i < num_pipes+1; i++) {
                     free(args[i]);
                 }
