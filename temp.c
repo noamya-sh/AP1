@@ -19,18 +19,22 @@
 #define MAX_VAR_NAME_LEN 20
 #define MAX_VAR_VALUE_LEN 50
 #define HASH_TABLE_SIZE 100
-
 typedef struct variable {
     char name[MAX_VAR_NAME_LEN];
     char value[MAX_VAR_VALUE_LEN];
     struct variable *next;
 } Variable;
-
+char *last_command = "", *prompt_name = "hello";
+char ***args,**pipe_commands, *commands[MAX_COMMANDS]; // Array to store command history
+int num_commands = 0; // Number of commands in history
+char input[MAX_COMMAND_LENGTH] = ""; // Input buffer for current command
+int input_length = 0; // Length of input buffer
+int command_index = 0,orig_com_idx; // Index of currently displayed command
+char *outfile;
+int fd, amper,redirect,retid,status,changed_prompt,changed_last,orig_stdin,orig_stdout;
 Variable *hash_table[HASH_TABLE_SIZE];
-
 // Hash function for strings
-unsigned int hash_string(const char *str)
-{
+unsigned int hash_string(const char *str){
     unsigned int hash = 0;
     while (*str) {
         hash = hash * 31 + *str;
@@ -38,7 +42,6 @@ unsigned int hash_string(const char *str)
     }
     return hash % HASH_TABLE_SIZE;
 }
-
 // Get a variable from the hash table
 Variable *get_variable(const char *name){
     unsigned int hash = hash_string(name);
@@ -76,16 +79,10 @@ void freeHashTable() {
         }
     }
 }
-
-char *last_command = "", *prompt_name = "hello";
-char ***args,**pipe_commands, *commands[MAX_COMMANDS]; // Array to store command history
-int num_commands = 0; // Number of commands in history
-char input[MAX_COMMAND_LENGTH] = ""; // Input buffer for current command
-int input_length = 0; // Length of input buffer
-int command_index = 0; // Index of currently displayed command
-char *outfile;
-int fd, amper,redirect,retid,status,changed_prompt,changed_last,orig_stdin,orig_stdout;
-
+int mod(int a, int b){
+    int r = a % b;
+    return r < 0 ? r + b : r;
+}
 // Function to read a single character from terminal without waiting for Enter key
 char getch(){
     char buf = 0;
@@ -331,8 +328,9 @@ int exec(const char* com, int flag){
             retid = pid;
             if (amper == 0){
                 wait(&status);
-                statusim[j] = status;
+
             }
+            statusim[j] = status;
         }
     }
     //redirect stdin and stdout to originals fds
@@ -418,14 +416,14 @@ int main(){
                     }
                 }
                 // Add command to command history
-                commands[num_commands] = strdup(input);
+                if (commands[num_commands % MAX_COMMANDS]) free(commands[num_commands % MAX_COMMANDS]);
+                commands[num_commands % MAX_COMMANDS] = strdup(input);
+                status = exec(commands[num_commands % MAX_COMMANDS],0);
+                if (changed_last) free(last_command);
+                last_command = strdup(commands[num_commands % MAX_COMMANDS]);
+                changed_last = 1;
                 num_commands++;
                 command_index = num_commands;
-                status = exec(commands[num_commands-1],0);
-
-                if (changed_last) free(last_command);
-                last_command = strdup(commands[num_commands-1]);
-                changed_last = 1;
                 cleanInput();
             }
             continue;
@@ -437,16 +435,15 @@ int main(){
                 display_command(input);
             }
         }
-        else if (c == 27)
-        {
+        else if (c == 27){
             // If Esc key is pressed, check for arrow keys
             c = getch();
             if (c == '['){
                 c = getch();
                 if (c == 'A'){
                     // If Up arrow key is pressed, display the previous command in history
-                    if (command_index > 0){
-                        command_index--;
+                    if (num_commands >= MAX_COMMANDS || (num_commands < MAX_COMMANDS && command_index > 1)){
+                        command_index = mod((command_index - 1), MAX_COMMANDS);
                         strncpy(input, commands[command_index], MAX_COMMAND_LENGTH - 1);
                         input_length = strlen(input);
                         display_command(input);
@@ -454,23 +451,28 @@ int main(){
                 }
                 else if (c == 'B'){
                     // If Down arrow key is pressed, display the next command in history
-                    if (command_index < num_commands){
-                        command_index++;
-                        if (command_index == num_commands){
-                            // If at the end of command history, clear the input buffer
-                            input[0] = '\0';
-                            input_length = 0;
-                        }
-                        else{
-                            strncpy(input, commands[command_index], MAX_COMMAND_LENGTH - 1);
-                            input_length = strlen(input);
-                        }
+                    if (num_commands >= MAX_COMMANDS){
+                        command_index = (command_index + 1) % MAX_COMMANDS;
+                        strncpy(input, commands[command_index], MAX_COMMAND_LENGTH - 1);
+                        input_length = strlen(input);
                         display_command(input);
+                    }
+                    else if (num_commands < MAX_COMMANDS && command_index < num_commands){
+                            command_index++;
+                            if (command_index == num_commands){
+                                // If at the end of command history, clear the input buffer
+                                input[0] = '\0';
+                                input_length = 0;
+                            }
+                            else{
+                                strncpy(input, commands[command_index], MAX_COMMAND_LENGTH - 1);
+                                input_length = strlen(input);
+                            }
+                            display_command(input);
                     }
                 }
             }
-        }
-        else if (c >= 32 && c <= 126 && input_length < MAX_COMMAND_LENGTH - 1){
+        } else if (c >= 32 && c <= 126 && input_length < MAX_COMMAND_LENGTH - 1){
             // If a printable character is pressed, append it to input buffer
             input[input_length++] = c;
             input[input_length] = '\0';
@@ -480,7 +482,8 @@ int main(){
     close(orig_stdin);
     close(orig_stdout);
     // Free memory allocated for command history
-    for (int i = 0; i < num_commands; i++){
+    int x = num_commands < MAX_COMMANDS ? num_commands : MAX_COMMANDS;
+    for (int i = 0; i < x; i++){
         free(commands[i]);
     }
     if (changed_prompt)free(prompt_name);
