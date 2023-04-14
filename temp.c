@@ -78,13 +78,13 @@ void freeHashTable() {
 }
 
 char *last_command = "", *prompt_name = "hello";
-char* commands[MAX_COMMANDS]; // Array to store command history
+char ***args,**pipe_commands, *commands[MAX_COMMANDS]; // Array to store command history
 int num_commands = 0; // Number of commands in history
 char input[MAX_COMMAND_LENGTH] = ""; // Input buffer for current command
 int input_length = 0; // Length of input buffer
 int command_index = 0; // Index of currently displayed command
 char *outfile;
-int fd, amper,redirect,retid,status,changed_prompt,changed_last;
+int fd, amper,redirect,retid,status,changed_prompt,changed_last,orig_stdin,orig_stdout;
 
 // Function to read a single character from terminal without waiting for Enter key
 char getch(){
@@ -150,21 +150,212 @@ void cleanInput(){
     fflush(stdout);
 }
 void sigint_handler(int signum) {
-    printf("You typed Control-C!\n");
-    printf("%s:",prompt_name);
-    fflush(stdout);
+    printf("\r\033[K"); // Clear the current line
+    if (retid > 0) {
+        // Send SIGINT to the child process
+        kill(retid, SIGINT);
+        retid = 0;
+    } else{
+
+        printf("You typed Control-C!\n");
+        printf("%s:",prompt_name);
+        fflush(stdout);
+    }
+
+}
+int exec(const char* com, int flag){
+    int num_pipes = countCharOccurrences(com,'|');
+    char* temp_input = strdup(com);
+    int pipesfd[num_pipes][2];
+    for (int i = 0; i < num_pipes; i++) {
+        if (pipe(pipesfd[i]) == -1) {
+            perror("pipe");
+            exit(1);
+        }
+    }
+    pipe_commands = (char**) malloc((num_pipes + 1) * sizeof (char *));
+    char *token;
+    token = strtok(temp_input,"|");
+    int k = 0;
+    while (token != NULL){
+        pipe_commands[k++] = token;
+        token = strtok(NULL, "|");
+    }
+
+    int pid,i;
+    args = (char ***) malloc((num_pipes + 1) * sizeof(char **));
+    int statusim[num_pipes+1];
+    for (int j = 0; j < num_pipes + 1; ++j) {
+
+        i = parser(args,pipe_commands[j],j);
+        if (args[j][0] == NULL)
+            break;
+        /* Does command line end with & */
+        if (i>0 && !strcmp(args[j][i - 1], "&")) {
+            amper = 1;
+            args[j][i - 1] = NULL;
+        }
+        else
+            amper = 0;
+
+        if (i > 3 && args[j][1][0] == '$' && !strcmp(args[j][i - 2], "=")){   //Q10 ---not finished
+            set_variable(args[j][i-3]+1,args[j][i-1]);
+            statusim[j] = 0;
+            continue;
+        }
+
+
+        if (! strcmp(args[j][0], "read")){
+            input[0] = '\0';
+            input_length = 0;
+            char command[MAX_COMMAND_LENGTH];
+            fgets(command, 1024, stdin);
+            command[strlen(command)-1] = '\0';
+            char new_word[20]; // allocate space for the new word
+            strncpy(new_word, args[j][1], 20); // concatenate the original word to the new word
+            set_variable(new_word,command);
+            statusim[j] = 0;
+            continue;
+        }
+
+
+        if (! strcmp(args[j][0], "echo")){   //Q3 && Q4
+            if(args[j][1][0]=='$'){
+                if(args[j][1][1]=='?'){
+                    printf("%d\n",status);
+                }
+                else{
+                    Variable *var = get_variable(args[j][1]+1);
+                    if (var)
+                        printf("%s\n", var->value);
+                }
+            }
+            else {
+                for (int s = 1; s < i; s++) {
+                    printf("%s ", args[j][s]);
+                }
+                printf("\n");
+            }
+            statusim[j] = 0;
+            continue;
+        } else if (i>2 && ! strcmp(args[j][i - 3], "prompt") && (! strcmp(args[j][i - 2], "="))) {  //Q2
+            if (changed_prompt) free(prompt_name);
+            prompt_name = strdup(args[j][i - 1]);
+            changed_prompt = 1;
+            statusim[j] = 0;
+            continue;
+        } else if (i>1 && ! strcmp(args[j][0], "cd")) {   //Q5
+            chdir(args[j][1]);
+            statusim[j] = 0;
+            continue;
+        }
+        if (i > 1 && !strcmp(args[j][i - 2], ">>")){    //Q1.2
+            redirect = REDIRECT_APP;
+            args[j][i - 2] = NULL;
+            outfile = args[j][i - 1];
+        }
+        else if (i > 1 && !strcmp(args[j][i - 2], ">")) {
+            redirect = REDIRECT_OUT;
+            args[j][i - 2] = NULL;
+            outfile = args[j][i - 1];
+        }
+        else if (i > 1 && !strcmp(args[j][i - 2], "2>")) {    //Q1.1
+            redirect = REDIRECT_ERR;
+            args[j][i - 2] = NULL;
+            outfile = args[j][i - 1];
+        }
+        else{
+            redirect = 0;
+        }
+        if ((pid = fork()) == -1) {
+            perror("fork");
+            exit(1);
+        }
+        else if (pid == 0) {
+            if (j > 0) {
+                dup2(pipesfd[j-1][0], 0);
+                close(pipesfd[j-1][0]);
+                close(pipesfd[j-1][1]);
+            }
+            if (j < num_pipes) {
+                // Redirect stdout to write end of pipe
+                dup2(pipesfd[j][1], 1);
+                close(pipesfd[j][0]);
+                close(pipesfd[j][1]);
+            }
+            if (j == num_pipes && flag){
+                int dev_null_fd = open("/dev/null", O_WRONLY);
+                dup2(dev_null_fd, STDOUT_FILENO);
+                close(dev_null_fd);
+            }
+
+            /* redirection of IO ? */
+            if (redirect == REDIRECT_OUT) {
+                fd = creat(outfile, 0660);
+                close(STDOUT_FILENO) ;
+                dup(fd);
+                close(fd);
+
+                /* stdout is now redirected */
+            }
+            if (redirect == REDIRECT_ERR){
+                if (freopen(outfile, "w", stderr) == NULL) {
+                    perror("freopen error");
+                    return 1;
+                }
+                // Restore stderr to its original stream
+                if (freopen("/dev/stderr", "w", stderr) == NULL) {
+                    perror("freopen error");
+                    return 1;
+                }
+            }
+            if (redirect == REDIRECT_APP){
+                fd = open(outfile, O_CREAT | O_APPEND | O_RDWR, 0660);
+                close(STDOUT_FILENO) ;
+                dup(fd);
+                close(fd);
+            }
+            execvp(args[j][0], args[j]);
+            exit(1);
+        } else {
+            // Parent process
+            if (j < num_pipes) {
+                // Close write end of pipe
+                close(pipesfd[j][1]);
+            }
+            if (j > 0) {
+                // Close read end of previous pipe
+                close(pipesfd[j-1][0]);
+                close(pipesfd[j-1][1]);
+            }
+            retid = pid;
+            if (amper == 0){
+                wait(&status);
+                statusim[j] = status;
+            }
+        }
+    }
+    //redirect stdin and stdout to originals fds
+    dup2(orig_stdin, 0);
+    dup2(orig_stdout, 1);
+
+    status = statusim[num_pipes];
+    for (int i = 0; i < num_pipes+1; i++) {
+        free(args[i]);
+    }
+
+    free(args);
+    free(pipe_commands);
+    free(temp_input);
+    return status;
 }
 int main(){
-    char** pipe_commands;
-    char*** args;
-
     signal(SIGINT, sigint_handler);
-    printf("Welcome to MyShell!\n");
     printf("%s:",prompt_name);
     fflush(stdout);
     //save orginal stdin, stdout
-    int orig_stdin = dup(0);
-    int orig_stdout = dup(1);
+    orig_stdin = dup(0);
+    orig_stdout = dup(1);
     while (1){
         char c = getch(); // Read a character from terminal
 
@@ -173,10 +364,6 @@ int main(){
             printf("\n");
             if (strcmp(input, "quit") == 0){
                 break; // Exit the loop and terminate the program
-            }
-            if (strncmp("if", input, 2) == 0){
-//                if_else();
-                continue; // Exit the loop and terminate the program
             }
             else{
                 if (strcmp(input, "!!") == 0){
@@ -187,194 +374,55 @@ int main(){
                         strncpy(input, last_command, strlen(last_command));
                     }
                 }
+                if (strncmp("if", input, 2) == 0){
+                    int status_if = exec(input+3,1);
+                    char then[20],than_command[MAX_COMMAND_LENGTH],else_[20],else_command[MAX_COMMAND_LENGTH],fi[20];
+                    fgets(then,20,stdin);
+                    then[strlen(then)-1]='\0';
+                    if (strcmp(then, "then") == 0){
+                        printf("\t");
+                    }
+                    else{
+                        status = 158461;
+                        cleanInput();
+                        continue;
+                    }
+                    fgets(than_command,MAX_COMMAND_LENGTH,stdin);
+                    than_command[strlen(than_command)-1]='\0';
+                    fgets(else_,20,stdin);
+                    else_[strlen(else_)-1]='\0';
+                    if (strcmp(else_, "else") == 0){
+                        printf("\t");
+                    }
+                    else{
+                        status = 158462;
+                        cleanInput();
+                        continue;
+                    }
+                    fgets(else_command,MAX_COMMAND_LENGTH,stdin);
+                    else_command[strlen(else_command)-1]='\0';
+                    fgets(fi,20,stdin);
+                    fi[strlen(fi)-1]='\0';
+                    if (strcmp(fi, "fi") == 0){
+                        if (!status_if){
+                            strncpy(input, than_command, MAX_COMMAND_LENGTH);
+                        }
+                        else{
+                            strncpy(input, else_command, MAX_COMMAND_LENGTH);
+                        }
+                    }
+                    else{
+                        status = 158463;
+                        cleanInput();
+                        continue;
+                    }
+                }
                 // Add command to command history
                 commands[num_commands] = strdup(input);
                 num_commands++;
                 command_index = num_commands;
+                status = exec(commands[num_commands-1],0);
 
-                int num_pipes = countCharOccurrences(commands[num_commands-1],'|');
-                int pipesfd[num_pipes][2];
-                for (int i = 0; i < num_pipes; i++) {
-                    if (pipe(pipesfd[i]) == -1) {
-                        perror("pipe");
-                        exit(1);
-                    }
-                }
-                pipe_commands = (char**) malloc((num_pipes + 1) * sizeof (char *));
-                char* temp_input = strdup(input);
-                char *token;
-                token = strtok(temp_input,"|");
-                int k = 0;
-                while (token != NULL){
-                    pipe_commands[k++] = token;
-                    token = strtok(NULL, "|");
-                }
-                int pid,i;
-                args = (char ***) malloc((num_pipes + 1) * sizeof(char **));
-                int statusim[num_pipes+1];
-                for (int j = 0; j < num_pipes + 1; ++j) {
-
-                    i = parser(args,pipe_commands[j],j);
-                    if (args[j][0] == NULL)
-                        break;
-                    /* Does command line end with & */
-                    if (i>0 && !strcmp(args[j][i - 1], "&")) {
-                        amper = 1;
-                        args[j][i - 1] = NULL;
-                    }
-                    else
-                        amper = 0;
-
-                    if (i > 3 && args[j][1][0] == '$' && !strcmp(args[j][i - 2], "=")){   //Q10 ---not finished
-                        set_variable(args[j][i-3]+1,args[j][i-1]);
-                        status = 0;
-                        continue;
-                    }
-
-
-                    if (! strcmp(args[j][0], "read")){
-                        input[0] = '\0';
-                        input_length = 0;
-                        char command[MAX_COMMAND_LENGTH];
-                        fgets(command, 1024, stdin);
-                        command[strlen(command)-1] = '\0';
-                        char new_word[20]; // allocate space for the new word
-                        strncpy(new_word, args[j][1], 20); // concatenate the original word to the new word
-                        set_variable(new_word,command);
-                        status = 0;
-                        continue;
-                    }
-
-
-                    if (! strcmp(args[j][0], "echo")){   //Q3 && Q4
-                        if(args[j][1][0]=='$'){
-                            if(args[j][1][1]=='?'){
-                                printf("%d\n",status);
-                            }
-                            else{
-                                Variable *var = get_variable(args[j][1]+1);
-                                if (var)
-                                    printf("%s\n", var->value);
-                            }
-                        }
-                        else {
-                            for (int s = 1; s < i; s++) {
-                                printf("%s ", args[j][s]);
-                            }
-                            printf("\n");
-                        }
-                        status = 0;
-                        continue;
-                    } else if (i>2 && ! strcmp(args[j][i - 3], "prompt") && (! strcmp(args[j][i - 2], "="))) {  //Q2
-                        if (changed_prompt) free(prompt_name);
-                        prompt_name = strdup(args[j][i - 1]);
-                        changed_prompt = 1;
-                        status = 0;
-                        continue;
-                    } else if (i>1 && ! strcmp(args[j][0], "cd")) {   //Q5
-                        chdir(args[j][1]);
-                        status = 0;
-                        continue;
-                    }
-                    if (i > 1 && !strcmp(args[j][i - 2], ">>")){    //Q1.2
-                        redirect = REDIRECT_APP;
-                        args[j][i - 2] = NULL;
-                        outfile = args[j][i - 1];
-                    }
-                    else if (i > 1 && !strcmp(args[j][i - 2], ">")) {
-                        redirect = REDIRECT_OUT;
-                        args[j][i - 2] = NULL;
-                        outfile = args[j][i - 1];
-                    }
-                    else if (i > 1 && !strcmp(args[j][i - 2], "2>")) {    //Q1.1
-                        redirect = REDIRECT_ERR;
-                        args[j][i - 2] = NULL;
-                        outfile = args[j][i - 1];
-                    }
-                    else{
-                        redirect = 0;
-                    }
-                    if ((pid = fork()) == -1) {
-                        perror("fork");
-                        exit(1);
-                    }
-                    else if (pid == 0) {
-//                        if (num_pipes > 0 && j==0){
-//                            close(STDOUT_FILENO); // close stdout
-//                            dup2(pipesfd[j][1], STDOUT_FILENO); // redirect stdout to write end of first pipe */
-//                            close(pipesfd[j][0]); // close read end of first pipe
-//                        }
-                        if (j > 0) {
-                            dup2(pipesfd[j-1][0], 0);
-                            close(pipesfd[j-1][0]);
-                            close(pipesfd[j-1][1]);
-                        }
-                        if (j < num_pipes) {
-                            // Redirect stdout to write end of pipe
-                            dup2(pipesfd[j][1], 1);
-                            close(pipesfd[j][0]);
-                            close(pipesfd[j][1]);
-                        }
-
-                        /* redirection of IO ? */
-                        if (redirect == REDIRECT_OUT) {
-                            fd = creat(outfile, 0660);
-                            close(STDOUT_FILENO) ;
-                            dup(fd);
-                            close(fd);
-
-                            /* stdout is now redirected */
-                        }
-                        if (redirect == REDIRECT_ERR){
-                            if (freopen(outfile, "w", stderr) == NULL) {
-                                perror("freopen error");
-                                return 1;
-                            }
-                            // Restore stderr to its original stream
-                            if (freopen("/dev/stderr", "w", stderr) == NULL) {
-                                perror("freopen error");
-                                return 1;
-                            }
-                        }
-                        if (redirect == REDIRECT_APP){
-                            fd = open(outfile, O_CREAT | O_APPEND | O_RDWR, 0660);
-                            close(STDOUT_FILENO) ;
-                            dup(fd);
-                            close(fd);
-                        }
-                        execvp(args[j][0], args[j]);
-                        exit(1);
-                    } else {
-                        // Parent process
-                        if (j < num_pipes) {
-                            // Close write end of pipe
-                            close(pipesfd[j][1]);
-                        }
-                        if (j > 0) {
-                            // Close read end of previous pipe
-                            close(pipesfd[j-1][0]);
-                            close(pipesfd[j-1][1]);
-                        }
-//                        retid = pid;
-//                        waitpid(pid, &status, 0);
-                        wait(&status);
-                        statusim[j] = status;
-                    }
-
-                    if (amper == 0)
-                        retid = wait(&status);
-                }
-                //redirect stdin and stdout to originals fds
-                dup2(orig_stdin, 0);
-                dup2(orig_stdout, 1);
-                status = statusim[num_pipes];
-                for (int i = 0; i < num_pipes+1; i++) {
-                    free(args[i]);
-                }
-
-                free(args);
-                free(pipe_commands);
-                free(temp_input);
                 if (changed_last) free(last_command);
                 last_command = strdup(commands[num_commands-1]);
                 changed_last = 1;
@@ -429,7 +477,8 @@ int main(){
             display_command(input);
         }
     }
-
+    close(orig_stdin);
+    close(orig_stdout);
     // Free memory allocated for command history
     for (int i = 0; i < num_commands; i++){
         free(commands[i]);
