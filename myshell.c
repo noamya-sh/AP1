@@ -296,7 +296,6 @@ int exec(const char* com, int flag){
                 /* stdin is now redirected */
             }
             if (redirect == REDIRECT_OUT) {
-                printf("out\n");
                 fd = creat(outfile, 0660);
                 close(STDOUT_FILENO) ;
                 dup(fd);
