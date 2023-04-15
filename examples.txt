@@ -1,0 +1,88 @@
+root@DESKTOP-A5G5N4F:/mnt/c/Users/Public/advanceProgramming# ./myshell
+hello:ls -l
+total 48
+-rwxrwxrwx 1 root root   165 Apr 14 15:34 Makefile
+drwxrwxrwx 1 root root   512 Apr 15 20:57 cmake-build-debug
+-rwxrwxrwx 1 root root     1 Apr 15 21:01 file
+-rwxrwxrwx 1 root root 27456 Apr 15 21:03 myshell
+-rwxrwxrwx 1 root root 17278 Apr 14 16:09 myshell.c
+hello:date
+Sat Apr 15 21:03:49 IDT 2023
+hello:ls -l | grep my | wc
+      2      18     102
+hello:prompt = eitan
+eitan:echo shalom arkadi | wc
+      1       2      15
+eitan:mkdir dir
+eitan:cd dir
+eitan:ls
+eitan:touch temp
+eitan:ls
+temp
+eitan:pwd
+/mnt/c/Users/Public/advanceProgramming/dir
+eitan:echo x y z
+x y z
+eitan:echo $x = 1
+eitan:read y
+2
+eitan:echo $x
+1
+eitan:echo $y
+2
+eitan:propmt = noamya
+eitan:echo $?
+256
+eitan:prompt = noamya
+noamya:echo $?
+0
+noamya:cd ..
+noamya:pwd
+/mnt/c/Users/Public/advanceProgramming
+noamya:touch exam_file
+noamya:ls we_got_error 2> exam_file
+noamya:ls -l >> exam_file
+noamya:cat exam_file
+ls: cannot access 'we_got_error': No such file or directory
+total 52
+-rwxrwxrwx 1 root root   165 Apr 14 15:34 Makefile
+drwxrwxrwx 1 root root   512 Apr 15 20:57 cmake-build-debug
+drwxrwxrwx 1 root root   512 Apr 15 21:14 dir
+-rwxrwxrwx 1 root root    60 Apr 15 21:26 exam_file
+-rwxrwxrwx 1 root root   936 Apr 15 21:26 file
+-rwxrwxrwx 1 root root 27456 Apr 15 21:03 myshell
+-rwxrwxrwx 1 root root 17278 Apr 14 16:09 myshell.c
+noamya:grep e < exam_file | wc -l
+7
+noamya:if date | grep Sun
+then
+        echo "Ho no, there is practice today"
+else
+        echo "Yessss, there isn't practice today"
+fi
+"Yessss, there isn't practice today"
+noamya: Ctrl C
+You typed Control-C!
+noamya:cat > people.txt
+dan
+ran
+dan
+yossi
+yossi
+ron
+din
+ron
+yossi
+dan
+ron
+Ctrl D
+noamya:sort people.txt | uniq -c | sort -r | head -3
+      3 yossi
+      3 ron
+      3 dan
+noamya:!!
+      3 yossi
+      3 ron
+      3 dan
+noamya:quit
+root@DESKTOP-A5G5N4F:/mnt/c/Users/Public/advanceProgramming#

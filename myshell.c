@@ -179,7 +179,6 @@ int exec(const char* com, int flag){
     args = (char ***) malloc((num_pipes + 1) * sizeof(char **));
     int statusim[num_pipes+1];
     for (int j = 0; j < num_pipes + 1; ++j) {
-
         i = parser(args,pipe_commands[j],j);
         if (args[j][0] == NULL)
             break;
@@ -212,26 +211,8 @@ int exec(const char* com, int flag){
         }
 
 
-        if (! strcmp(args[j][0], "echo")){   //Q3 && Q4
-            if(args[j][1][0]=='$'){
-                if(args[j][1][1]=='?'){
-                    printf("%d\n",status);
-                }
-                else{
-                    Variable *var = get_variable(args[j][1]+1);
-                    if (var)
-                        printf("%s\n", var->value);
-                }
-            }
-            else {
-                for (int s = 1; s < i; s++) {
-                    printf("%s ", args[j][s]);
-                }
-                printf("\n");
-            }
-            statusim[j] = 0;
-            continue;
-        } else if (i>2 && ! strcmp(args[j][i - 3], "prompt") && (! strcmp(args[j][i - 2], "="))) {  //Q2
+
+        if (i>2 && ! strcmp(args[j][i - 3], "prompt") && (! strcmp(args[j][i - 2], "="))) {  //Q2
             if (changed_prompt) free(prompt_name);
             prompt_name = strdup(args[j][i - 1]);
             changed_prompt = 1;
@@ -319,6 +300,24 @@ int exec(const char* com, int flag){
                 dup(fd);
                 close(fd);
             }
+            if (! strcmp(args[j][0], "echo")) {   //Q3 && Q4
+                if (args[j][1][0] == '$') {
+                    if (args[j][1][1] == '?') {
+                        printf("%d\n", status);
+                    } else {
+                        Variable *var = get_variable(args[j][1] + 1);
+                        if (var)
+                            printf("%s\n", var->value);
+                    }
+                } else {
+                    for (int s = 1; s < i; s++) {
+                        printf("%s ", args[j][s]);
+                    }
+                    printf("\n");
+                }
+                statusim[j] = 0;
+                exit(1);
+            }
             execvp(args[j][0], args[j]);
             exit(1);
         } else {
@@ -367,6 +366,11 @@ int main(){
         if (c == '\n'){
             // Enter key pressed, execute command
             printf("\n");
+            //if press enter without content
+            if (input_length == 0){
+                cleanInput();
+                continue;
+            }
             if (strcmp(input, "quit") == 0){
                 break; // Exit the loop and terminate the program
             }

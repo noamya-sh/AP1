@@ -1,0 +1,8 @@
+ls: cannot access 'we_got_error': No such file or directory
+total 52
+-rwxrwxrwx 1 root root   165 Apr 14 15:34 Makefile
+drwxrwxrwx 1 root root   512 Apr 15 20:57 cmake-build-debug
+-rwxrwxrwx 1 root root    60 Apr 15 21:46 exam_file
+-rwxrwxrwx 1 root root  1887 Apr 15 21:44 file
+-rwxrwxrwx 1 root root 27456 Apr 15 21:33 myshell
+-rwxrwxrwx 1 root root 17244 Apr 15 21:32 myshell.c
