@@ -377,7 +377,7 @@ int main(){
             else{
                 if (strcmp(input, "!!") == 0){
                     if (!changed_last){
-                        printf("No command has been executed yet");
+                        printf("No command has been executed yet\n");
                     }
                     else{
                         strncpy(input, last_command, strlen(last_command));
